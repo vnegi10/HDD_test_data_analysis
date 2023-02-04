@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ 0f13e168-a1a3-11ed-1d08-6d1b9fd20152
-using CSV, DataFrames, Dates, VegaLite
+using CSV, DataFrames, Dates, VegaLite, ThreadsX
 
 # ╔═╡ 526df6c0-92e6-40f9-96b8-8400e172c44a
 md"
@@ -39,7 +39,45 @@ end
 files = read_filepaths("data")
 
 # ╔═╡ 89cb4259-9724-4c12-a587-da43028c1750
-df_hdd = CSV.File(files[1], header = 1) |> DataFrame
+df_hdd = CSV.File(files[3], header = 1) |> DataFrame
+
+# ╔═╡ 9362eaad-ff3e-437f-bd6e-5515a913641f
+function csv_to_df(file)
+	df_hdd = CSV.File(file, header = 1) |> DataFrame
+	return df_hdd
+end
+
+# ╔═╡ 324fe9f0-b3f6-4345-98e8-2bf66e5fe893
+function get_all_df_serial(location::String, num_files::Int64)
+
+	files = read_filepaths(location)
+	files_to_use = files[1:num_files]
+
+	all_hdd = Array{DataFrame}(undef, length(files_to_use))
+	
+	map!(x -> csv_to_df(x), all_hdd, files_to_use)
+
+	return all_hdd
+end	
+
+# ╔═╡ f5cbdb7a-b215-44ba-b01b-d4bae48ba106
+function get_all_df_parallel(location::String, num_files::Int64)
+
+	files = read_filepaths(location)
+	files_to_use = files[1:num_files]
+
+	all_hdd = Array{DataFrame}(undef, length(files_to_use))
+	
+	ThreadsX.map!(x -> csv_to_df(x), all_hdd, files_to_use)
+
+	return all_hdd
+end	
+
+# ╔═╡ db8e7773-9ead-48ba-829a-2ef9b7710a1d
+md"
+### Explore data
+---
+"
 
 # ╔═╡ d7c35096-e9d2-4881-9a55-783ecc49d612
 names(df_hdd)
@@ -51,8 +89,67 @@ filter(row -> ~ismissing(row.smart_5_raw) &&
 			  row.smart_187_raw > 0,
 			  df_hdd)
 
+# ╔═╡ 6aca02ac-0b48-4643-b18b-6b9f26677881
+
+
+# ╔═╡ 0ae085ec-ec13-4f26-b6f2-4bf7d264865f
+
+
 # ╔═╡ fbf2b366-b36e-4f2e-9ffb-2a2bedf9305a
-df_hdd[!, :smart_231_raw] |> findmax
+
+
+# ╔═╡ 27f2a510-9e43-4f56-8deb-144164cc9e1e
+md"
+### Plot data
+---
+"
+
+# ╔═╡ abf0af13-6028-4ca7-8736-0947429639d2
+function plot_capacity_distribution(location::String, file_index::Int64)
+
+	files  = read_filepaths(location)
+	@assert file_index ≤ length(files) "Select a lower index"
+	
+	df_hdd = CSV.File(files[file_index], header = 1) |> DataFrame
+	df_hdd = filter(row -> ~ismissing(row.capacity_bytes) &&
+		            row.capacity_bytes > 0, df_hdd)
+
+	day = df_hdd[!, :date][1]	
+
+	df_hdd_capacity = select(df_hdd, 
+		                     :model, 
+		                     :capacity_bytes => (x -> x / 1e12) => :capacity_TB)
+
+	figure = df_hdd_capacity |>
+
+	@vlplot(:bar, 
+	        x = {:capacity_TB, 
+		         "axis" = {"title" = "HDD capacity [TB]", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}, 
+	             "bin" = {"maxbins" = 25}},
+				 
+	        y = {"count()", 
+			     "axis" = {"title" = "Number of counts", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+						   
+	        width   = 750, 
+			height  = 500, 
+			"title" = {"text" = "HDD capacity distribution on $(day)", 
+			           "fontSize" = 12},
+			color = :model
+			)
+
+	return figure
+
+end
+
+# ╔═╡ 954ede07-53c7-4b64-bba4-4072c6e43863
+#plot_capacity_distribution("data", 10)
+
+# ╔═╡ 72749fd6-8cdb-450a-86e1-be55ea8688b5
+#plot_capacity_distribution("data", 1)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -60,11 +157,13 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
 VegaLite = "112f6efa-9a02-5b7d-90c0-432ed331239a"
 
 [compat]
 CSV = "~0.10.9"
 DataFrames = "~1.4.4"
+ThreadsX = "~0.1.11"
 VegaLite = "~2.6.0"
 """
 
@@ -74,7 +173,18 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "086b376575b8ebfbdac529c3279512174f1c6973"
+project_hash = "bc1276e5388614d0b8335226e6dfe4b1d7da2bf2"
+
+[[deps.Adapt]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "0310e08cb19f5da31d08341c6120c047598f5b9c"
+uuid = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+version = "3.5.0"
+
+[[deps.ArgCheck]]
+git-tree-sha1 = "a3a402a35a2f7e0b87828ccabbd5ebfbebe356b4"
+uuid = "dce04be8-c92d-5529-be00-80e4d2c0e197"
+version = "2.3.0"
 
 [[deps.ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
@@ -83,8 +193,19 @@ version = "1.1.1"
 [[deps.Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 
+[[deps.BangBang]]
+deps = ["Compat", "ConstructionBase", "Future", "InitialValues", "LinearAlgebra", "Requires", "Setfield", "Tables", "ZygoteRules"]
+git-tree-sha1 = "7fe6d92c4f281cf4ca6f2fba0ce7b299742da7ca"
+uuid = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
+version = "0.3.37"
+
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
+
+[[deps.Baselet]]
+git-tree-sha1 = "aebf55e6d7795e02ca500a689d326ac979aaf89e"
+uuid = "9718e550-a3fa-408a-8086-8db961cd8217"
+version = "0.1.1"
 
 [[deps.BitFlags]]
 git-tree-sha1 = "43b1a4a8f797c1cddadf60499a8a077d4af2cd2d"
@@ -113,6 +234,11 @@ version = "4.5.0"
 deps = ["Artifacts", "Libdl"]
 uuid = "e66e0078-7015-5450-92f7-15fbd957f2ae"
 version = "1.0.1+0"
+
+[[deps.CompositionsBase]]
+git-tree-sha1 = "455419f7e328a1a2493cabc6428d79e951349769"
+uuid = "a33af91c-f02d-484b-be07-31d278c5ca2b"
+version = "0.1.1"
 
 [[deps.ConstructionBase]]
 deps = ["LinearAlgebra"]
@@ -156,6 +282,15 @@ version = "0.4.13"
 [[deps.Dates]]
 deps = ["Printf"]
 uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
+
+[[deps.DefineSingletons]]
+git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
+uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
+version = "0.1.2"
+
+[[deps.Distributed]]
+deps = ["Random", "Serialization", "Sockets"]
+uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[deps.Downloads]]
 deps = ["ArgTools", "FileWatching", "LibCURL", "NetworkOptions"]
@@ -203,6 +338,11 @@ version = "1.7.4"
 git-tree-sha1 = "f550e6e32074c939295eb5ea6de31849ac2c9625"
 uuid = "83e8ac13-25f8-5344-8a64-a9f2b223428f"
 version = "0.5.1"
+
+[[deps.InitialValues]]
+git-tree-sha1 = "4da0f88e9a39111c2fa3add390ab15f3a44f3ca3"
+uuid = "22cec73e-a1b8-11e9-2c92-598750a2cf9c"
+version = "0.3.1"
 
 [[deps.InlineStrings]]
 deps = ["Parsers"]
@@ -303,6 +443,12 @@ deps = ["Artifacts", "Libdl"]
 uuid = "c8ffd9c3-330d-5841-b78e-0817d7145fa1"
 version = "2.28.0+0"
 
+[[deps.MicroCollections]]
+deps = ["BangBang", "InitialValues", "Setfield"]
+git-tree-sha1 = "4d5917a26ca33c66c8e5ca3247bd163624d35493"
+uuid = "128add7d-3638-4c79-886c-908ea0c25c34"
+version = "0.1.3"
+
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "f66bdc5de519e8f8ae43bdc598782d35a25b1272"
@@ -394,6 +540,12 @@ git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
+[[deps.Referenceables]]
+deps = ["Adapt"]
+git-tree-sha1 = "e681d3bfa49cd46c3c161505caddf20f0e62aaa9"
+uuid = "42d2dcc6-99eb-4e98-b66c-637b7d73030e"
+version = "0.1.2"
+
 [[deps.Requires]]
 deps = ["UUIDs"]
 git-tree-sha1 = "838a3a4188e2ded87a4f9f184b4b0d78a1e91cb7"
@@ -443,6 +595,12 @@ version = "1.1.0"
 deps = ["LinearAlgebra", "Random"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
+[[deps.SplittablesBase]]
+deps = ["Setfield", "Test"]
+git-tree-sha1 = "e08a62abc517eb79667d0a29dc08a3b589516bb5"
+uuid = "171d559e-b47b-412a-8079-5efa626c420e"
+version = "0.1.15"
+
 [[deps.StaticArraysCore]]
 git-tree-sha1 = "6b7ba252635a5eff6a0b0664a41ee140a1c9e72a"
 uuid = "1e83bf80-4336-4d27-bf5d-d5a4f845583c"
@@ -489,11 +647,23 @@ version = "1.10.1"
 deps = ["InteractiveUtils", "Logging", "Random", "Serialization"]
 uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
+[[deps.ThreadsX]]
+deps = ["ArgCheck", "BangBang", "ConstructionBase", "InitialValues", "MicroCollections", "Referenceables", "Setfield", "SplittablesBase", "Transducers"]
+git-tree-sha1 = "34e6bcf36b9ed5d56489600cf9f3c16843fa2aa2"
+uuid = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
+version = "0.1.11"
+
 [[deps.TranscodingStreams]]
 deps = ["Random", "Test"]
 git-tree-sha1 = "94f38103c984f89cf77c402f2a68dbd870f8165f"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.9.11"
+
+[[deps.Transducers]]
+deps = ["Adapt", "ArgCheck", "BangBang", "Baselet", "CompositionsBase", "DefineSingletons", "Distributed", "InitialValues", "Logging", "Markdown", "MicroCollections", "Requires", "Setfield", "SplittablesBase", "Tables"]
+git-tree-sha1 = "c42fa452a60f022e9e087823b47e5a5f8adc53d5"
+uuid = "28d57a85-8fef-5791-bfe6-a80928e7c999"
+version = "0.4.75"
 
 [[deps.URIParser]]
 deps = ["Unicode"]
@@ -541,6 +711,12 @@ deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
 version = "1.2.12+3"
 
+[[deps.ZygoteRules]]
+deps = ["MacroTools"]
+git-tree-sha1 = "8c1a8e4dfacb1fd631745552c8db35d0deb09ea0"
+uuid = "700de1a5-db45-46bc-99cf-38207098b444"
+version = "0.2.2"
+
 [[deps.libblastrampoline_jll]]
 deps = ["Artifacts", "Libdl", "OpenBLAS_jll"]
 uuid = "8e850b90-86db-534c-a0d3-1478176c7d93"
@@ -564,8 +740,18 @@ version = "17.4.0+0"
 # ╟─8624f4f9-a9f6-4938-ad73-a3e279eaa93b
 # ╠═3cb20b83-935e-4766-99d1-0d25a0becdce
 # ╠═89cb4259-9724-4c12-a587-da43028c1750
+# ╟─9362eaad-ff3e-437f-bd6e-5515a913641f
+# ╟─324fe9f0-b3f6-4345-98e8-2bf66e5fe893
+# ╟─f5cbdb7a-b215-44ba-b01b-d4bae48ba106
+# ╟─db8e7773-9ead-48ba-829a-2ef9b7710a1d
 # ╠═d7c35096-e9d2-4881-9a55-783ecc49d612
 # ╠═6a5c74fa-e0e8-499b-8176-17877d1a71d4
+# ╠═6aca02ac-0b48-4643-b18b-6b9f26677881
+# ╠═0ae085ec-ec13-4f26-b6f2-4bf7d264865f
 # ╠═fbf2b366-b36e-4f2e-9ffb-2a2bedf9305a
+# ╟─27f2a510-9e43-4f56-8deb-144164cc9e1e
+# ╟─abf0af13-6028-4ca7-8736-0947429639d2
+# ╠═954ede07-53c7-4b64-bba4-4072c6e43863
+# ╠═72749fd6-8cdb-450a-86e1-be55ea8688b5
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
