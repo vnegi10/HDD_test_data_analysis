@@ -231,7 +231,61 @@ function get_parameter_split(location::String,
 end	
 
 # ╔═╡ 1c551031-d877-4327-9bcd-6380682ff190
-df_stats = get_parameter_split("data", 15, smart_stat = "smart_7_raw")
+#df_stats = get_parameter_split("data", 15, smart_stat = "smart_7_raw")
+
+# ╔═╡ f8e20f63-eb07-48df-9fa1-617ab49697e7
+md"
+##### Collect data for failed drives
+"
+
+# ╔═╡ 9fc66684-1f99-4d5f-8cce-c5c4899bfa8b
+function get_failed_drives(location::String, 
+	                       num_files::Int64)
+
+	files = read_filepaths(location)
+	@assert num_files ≤ length(files) "Reduce the number of files below $(length(files))"
+	
+	files_to_use = files[1:num_files]
+	all_nok = DataFrame[]
+
+	for file in files_to_use
+		df_hdd = file |> csv_to_df
+
+		df_nok = filter(row -> ~ismissing(row.failure) && 
+		                                  row.failure > 0, df_hdd)
+
+		push!(all_nok, df_nok)
+	end
+
+	return vcat(all_nok...)
+	
+end	
+
+# ╔═╡ 6c80ce03-dd0d-4d4a-883e-8bfc34e71009
+df_all_nok = get_failed_drives("data/data_Q4_2022", 10)
+
+# ╔═╡ b534f5eb-90ce-44ae-86ae-061e91c56bf4
+md"
+##### Count number of each model
+"
+
+# ╔═╡ 9c227e4f-5663-4423-84a9-1862458c591f
+function get_model_count(df_hdd::DataFrame)
+	
+	# Get count of each model
+	all_models = df_hdd[!, :model] |> unique
+	all_counts = Int64[]
+
+	for model in all_models
+		num_counts = count(x -> x == model, df_hdd[!, :model])
+		push!(all_counts, num_counts)
+	end
+
+	df_hdd_model = DataFrame(MODELS = all_models, 
+	                         COUNTS = all_counts)
+
+	return df_hdd_model
+end
 
 # ╔═╡ 27f2a510-9e43-4f56-8deb-144164cc9e1e
 md"
@@ -239,8 +293,13 @@ md"
 ---
 "
 
+# ╔═╡ a7ce54f2-ec66-43ab-823b-50834369bf3f
+md"
+##### Capacity distribution on a given day
+"
+
 # ╔═╡ abf0af13-6028-4ca7-8736-0947429639d2
-function plot_capacity_distribution(location::String, file_index::Int64)
+function plot_capacity_dist(location::String, file_index::Int64)
 
 	files  = read_filepaths(location)
 	@assert file_index ≤ length(files) "Select a lower index"
@@ -281,7 +340,199 @@ function plot_capacity_distribution(location::String, file_index::Int64)
 end
 
 # ╔═╡ 954ede07-53c7-4b64-bba4-4072c6e43863
-#plot_capacity_distribution("data", 10)
+#plot_capacity_dist("data", 10)
+
+# ╔═╡ cf704ae2-8a2b-49ea-a1ac-23a60a9c3666
+md"
+##### Capacity distribution for all failed drives
+"
+
+# ╔═╡ 1c321919-8ee2-4472-8979-66b7eb29f52d
+function plot_failed_capacity_dist(location::String, 
+	                      		   num_files::Int64)
+
+	df_all_nok = get_failed_drives(location, num_files)
+
+	start_date, end_date = df_all_nok[!, :date][1], df_all_nok[!, :date][end]
+
+	df_hdd_capacity = select(df_all_nok, 
+		                     :model, 
+		                     :capacity_bytes => (x -> x / 1e12) => :capacity_TB)
+
+	figure = df_hdd_capacity |>
+
+	@vlplot(:bar, 
+	        x = {:capacity_TB, 
+		         "axis" = {"title" = "HDD capacity [TB]", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}, 
+	             "bin" = {"maxbins" = 25}},
+				 
+	        y = {"count()", 
+			     "axis" = {"title" = "Number of counts", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+						   
+	        width   = 750, 
+			height  = 500, 
+			"title" = {"text" = "Failed HDD capacity distribution between $(start_date) and $(end_date)", 
+			           "fontSize" = 12},
+			color = :model
+			)
+
+	return figure
+end	
+
+# ╔═╡ 6458cb46-7e17-4b92-87fd-d09125db5498
+plot_failed_capacity_dist("data/data_Q4_2022", 92)
+
+# ╔═╡ af68db74-0447-41cf-87a6-d8cdb8c0d82c
+md"
+##### Model distribution for a given day
+"
+
+# ╔═╡ 860f4a45-8c8a-46b0-9bf3-fd505a34196e
+function plot_model_dist(location::String, file_index::Int64)
+
+	files  = read_filepaths(location)
+	@assert file_index ≤ length(files) "Select an index lesser than $(length(files))"
+	
+	df_hdd = csv_to_df(files[file_index])
+
+	day = df_hdd[!, :date][1]
+
+	df_hdd_model = get_model_count(df_hdd)
+
+	figure = df_hdd_model |>
+
+	@vlplot(:bar, 
+	        x = {:MODELS, 
+		         "axis" = {"title" = "HDD model ", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12,
+						   "labelAngle" = 45}},
+				 
+	        y = {:COUNTS, 
+			     "type" = "quantitative",
+			     "axis" = {"title" = "Number of counts", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+						   
+	        width   = 750, 
+			height  = 500, 
+			"title" = {"text" = "All HDD model distribution on $(day)", 
+			           "fontSize" = 12},
+			)
+
+	return figure
+	
+end
+
+# ╔═╡ 52d3fdd8-e078-45c8-9e81-9ee4bd6531e9
+plot_model_dist("data/data_Q4_2022", 1)
+
+# ╔═╡ 5cc69e6a-4f9f-43fb-8cc7-f1062491de2e
+md"
+##### Model distribution for failed drives
+"
+
+# ╔═╡ 445285b9-643b-4f64-a9ea-6f97d5b009e2
+function plot_failed_model_dist(location::String, 
+	                      		num_files::Int64)
+
+	df_all_nok = get_failed_drives(location, num_files)
+
+	start_date, end_date = df_all_nok[!, :date][1], df_all_nok[!, :date][end]
+
+	df_hdd_model = get_model_count(df_all_nok)
+
+	figure = df_hdd_model |>
+
+	@vlplot(:bar, 
+	        x = {:MODELS, 
+		         "axis" = {"title" = "HDD model ", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12,
+						   "labelAngle" = 45}},
+				 
+	        y = {:COUNTS, 
+			     "type" = "quantitative",
+			     "axis" = {"title" = "Number of counts", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+						   
+	        width   = 750, 
+			height  = 500, 
+			"title" = {"text" = "Failed HDD model distribution between $(start_date) and $(end_date)", 
+			           "fontSize" = 12},
+			)
+
+	return figure
+end	
+
+# ╔═╡ 0367be00-5fc5-4973-bfd2-e042ba21714a
+plot_failed_model_dist("data/data_Q4_2022", 92)
+
+# ╔═╡ 505c2151-3a55-41ca-a1fa-d41ef97cde54
+function plot_failed_model_pert(location::String, 
+	                      		num_files::Int64)
+
+	files  = read_filepaths(location)
+
+	# Read first file to get a population sample
+	df_hdd = csv_to_df(files[1])
+	df_hdd_model = get_model_count(df_hdd)
+
+	# Get total failed drives
+	df_all_nok = get_failed_drives(location, num_files)
+	start_date, end_date = df_all_nok[!, :date][1], df_all_nok[!, :date][end]
+
+	df_nok_model = get_model_count(df_all_nok)
+	all_nok_pert = Float64[]
+
+	for (i, model) in enumerate(df_nok_model[!, :MODELS])
+
+		df_total = filter(row -> row.MODELS == model, df_hdd_model)
+		num_total = df_total[!, :COUNTS][1]
+
+		nok_pert = (df_nok_model[!, :COUNTS][i] / num_total) * 100
+		push!(all_nok_pert, nok_pert)
+	end
+
+	insertcols!(df_nok_model, 2, :PERT => all_nok_pert, after = true)
+
+	figure = df_nok_model |>
+
+	@vlplot(:bar, 
+	        x = {:MODELS, 
+		         "axis" = {"title" = "HDD model ", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12,
+						   "labelAngle" = 45}},
+				 
+	        y = {:PERT, 
+			     "type" = "quantitative",
+			     "axis" = {"title" = "% of total number of drives of same type", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+						   
+	        width   = 750, 
+			height  = 500, 
+			"title" = {"text" = "Failed HDD model % distribution between $(start_date) and $(end_date)", 
+			           "fontSize" = 12},
+			)
+
+	return figure
+
+end	
+
+# ╔═╡ f844f06a-0a53-481d-a642-7816224ec649
+plot_failed_model_pert("data/data_Q4_2022", 92)
+
+# ╔═╡ 031e7ec2-41ff-477e-a27e-f4548bbda7b9
+md"
+##### Distribution of crucial SMART parameters between operational and failed drives
+"
 
 # ╔═╡ 72749fd6-8cdb-450a-86e1-be55ea8688b5
 function plot_parameter_split(location::String, 
@@ -1008,9 +1259,27 @@ version = "17.4.0+0"
 # ╟─6cb90013-5e91-435f-bfac-85eccb13d4f4
 # ╟─570c59ec-31aa-475a-9284-eba9418ed2e6
 # ╠═1c551031-d877-4327-9bcd-6380682ff190
+# ╟─f8e20f63-eb07-48df-9fa1-617ab49697e7
+# ╟─9fc66684-1f99-4d5f-8cce-c5c4899bfa8b
+# ╠═6c80ce03-dd0d-4d4a-883e-8bfc34e71009
+# ╟─b534f5eb-90ce-44ae-86ae-061e91c56bf4
+# ╟─9c227e4f-5663-4423-84a9-1862458c591f
 # ╟─27f2a510-9e43-4f56-8deb-144164cc9e1e
+# ╟─a7ce54f2-ec66-43ab-823b-50834369bf3f
 # ╟─abf0af13-6028-4ca7-8736-0947429639d2
 # ╠═954ede07-53c7-4b64-bba4-4072c6e43863
+# ╟─cf704ae2-8a2b-49ea-a1ac-23a60a9c3666
+# ╟─1c321919-8ee2-4472-8979-66b7eb29f52d
+# ╠═6458cb46-7e17-4b92-87fd-d09125db5498
+# ╟─af68db74-0447-41cf-87a6-d8cdb8c0d82c
+# ╟─860f4a45-8c8a-46b0-9bf3-fd505a34196e
+# ╠═52d3fdd8-e078-45c8-9e81-9ee4bd6531e9
+# ╟─5cc69e6a-4f9f-43fb-8cc7-f1062491de2e
+# ╟─445285b9-643b-4f64-a9ea-6f97d5b009e2
+# ╠═0367be00-5fc5-4973-bfd2-e042ba21714a
+# ╟─505c2151-3a55-41ca-a1fa-d41ef97cde54
+# ╠═f844f06a-0a53-481d-a642-7816224ec649
+# ╟─031e7ec2-41ff-477e-a27e-f4548bbda7b9
 # ╟─72749fd6-8cdb-450a-86e1-be55ea8688b5
 # ╟─e4f67c5c-dabc-4c78-a113-097d912e6a60
 # ╠═54d11ae3-9272-4087-858b-1f7d18bd6fdd
