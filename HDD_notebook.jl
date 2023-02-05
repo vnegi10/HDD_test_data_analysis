@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ 0f13e168-a1a3-11ed-1d08-6d1b9fd20152
-using CSV, DataFrames, Dates, VegaLite, ThreadsX
+using CSV, DataFrames, Dates, VegaLite, ThreadsX, Statistics
 
 # ╔═╡ 526df6c0-92e6-40f9-96b8-8400e172c44a
 md"
@@ -35,17 +35,23 @@ function read_filepaths(folder::String)
 	return filepaths
 end
 
-# ╔═╡ 3cb20b83-935e-4766-99d1-0d25a0becdce
-files = read_filepaths("data")
-
-# ╔═╡ 89cb4259-9724-4c12-a587-da43028c1750
-df_hdd = CSV.File(files[3], header = 1) |> DataFrame
-
 # ╔═╡ 9362eaad-ff3e-437f-bd6e-5515a913641f
 function csv_to_df(file)
 	df_hdd = CSV.File(file, header = 1) |> DataFrame
 	return df_hdd
 end
+
+# ╔═╡ 3cb20b83-935e-4766-99d1-0d25a0becdce
+files = read_filepaths("data")
+
+# ╔═╡ 89cb4259-9724-4c12-a587-da43028c1750
+df_hdd = csv_to_df(files[2])
+
+# ╔═╡ c91e5550-37b7-4cf9-b8b5-7aeb1957e524
+df_nok = filter(row -> row.failure == 0, df_hdd)
+
+# ╔═╡ 6eb86c63-6739-45f5-8de6-3a1eac22c57f
+df_nok_stat = select(df_nok, :smart_7_raw => :to_check)
 
 # ╔═╡ 324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 function get_all_df_serial(location::String, num_files::Int64)
@@ -82,21 +88,150 @@ md"
 # ╔═╡ d7c35096-e9d2-4881-9a55-783ecc49d612
 names(df_hdd)
 
-# ╔═╡ 6a5c74fa-e0e8-499b-8176-17877d1a71d4
-filter(row -> ~ismissing(row.smart_5_raw) && 
-		      ~ismissing(row.smart_187_raw) &&
-		      row.smart_5_raw > 0 &&
-			  row.smart_187_raw > 0,
-			  df_hdd)
+# ╔═╡ 05a82650-9f18-4b77-b54c-3fd587e56522
+md"
+##### Population health based on SMART 5, 187, 188
+"
 
 # ╔═╡ 6aca02ac-0b48-4643-b18b-6b9f26677881
+function get_population_health(location::String, num_files::Int64)
 
+	files = read_filepaths(location)
+	files_to_use = files[1:num_files]
+	
+	dates = Date[]
+	noks  = Float64[]
+
+	for file in files_to_use
+		df_hdd = csv_to_df(file)
+		num_total = nrow(df_hdd)
+
+		# Get first value as all dates are same
+		push!(dates, df_hdd[!, :date][1])
+
+		# Filter relevant columns
+		df_hdd = select(df_hdd, [:smart_5_raw, 
+		                         :smart_187_raw,
+		                         :smart_188_raw],
+		                         copycols = false)
+
+		num_nok = count(row -> ~ismissing(row.smart_5_raw) && 
+		      				   ~ismissing(row.smart_187_raw) &&
+			                   ~ismissing(row.smart_188_raw) &&
+		                       row.smart_5_raw > 0 &&
+			                   row.smart_187_raw > 0 &&
+			                   row.smart_188_raw > 0,
+			                   eachrow(df_hdd))
+		
+		fraction_nok = (num_nok / num_total) * 100
+		push!(noks, fraction_nok)
+	end
+
+	df_health = DataFrame(DATES = dates, 
+	                      NOKS  = noks)
+
+end
+
+# ╔═╡ 510ae8dc-2288-4927-9552-782fc98dd290
+function get_health(file)
+
+	df_hdd = csv_to_df(file)
+	num_total = nrow(df_hdd)
+
+	date = df_hdd[!, :date][1]
+
+	num_nok = ThreadsX.count(row -> ~ismissing(row.smart_5_raw) && 
+		      				   ~ismissing(row.smart_187_raw) &&
+			                   ~ismissing(row.smart_188_raw) &&
+		                       row.smart_5_raw > 0 &&
+			                   row.smart_187_raw > 0 &&
+			                   row.smart_188_raw > 0,
+			                   eachrow(df_hdd))
+	
+	fraction_nok = (num_nok / num_total) * 100
+
+	return DataFrame(DATES = date, NOKS = fraction_nok)
+	
+end
+
+# ╔═╡ 5a8890a3-6d0a-495a-b261-9b68933b95a2
+function get_population_health_parallel(location::String, num_files::Int64)
+
+	files = read_filepaths(location)
+	files_to_use = files[1:num_files]
+
+	all_health = Array{DataFrame}(undef, length(files_to_use))
+	
+	ThreadsX.map!(x -> get_health(x), all_health, files_to_use)
+
+	return vcat(all_health...)
+end	
 
 # ╔═╡ 0ae085ec-ec13-4f26-b6f2-4bf7d264865f
-
+#@time get_population_health("data", 60)
 
 # ╔═╡ fbf2b366-b36e-4f2e-9ffb-2a2bedf9305a
+#@time get_population_health_parallel("data", 60)
 
+# ╔═╡ 00ab4336-e085-4c18-b868-09986348205d
+md"
+##### Drive failure correlation with SMART parameters
+"
+
+# ╔═╡ 6cb90013-5e91-435f-bfac-85eccb13d4f4
+function get_stat_match(df::DataFrame, smart_stat::String)
+
+	num_total   = nrow(df)
+
+	df_stat     = select(df, Symbol(smart_stat) => Symbol("to_check"))
+	num_stat    = count(row -> ~ismissing(row.to_check) && 
+	                                      row.to_check > 0, eachrow(df_stat))
+
+	num_match   = (num_stat / num_total) * 100
+
+	return num_match
+end
+
+# ╔═╡ 570c59ec-31aa-475a-9284-eba9418ed2e6
+function get_parameter_split(location::String, 
+	                         num_files::Int64;
+                             smart_stat::String)
+
+	files = read_filepaths(location)
+	files_to_use = files[1:num_files]
+
+	dates = Date[]
+	nok_match, ok_match = [Float64[] for i = 1:2]	
+
+	for file in files_to_use
+
+		df_hdd = file |> csv_to_df
+		push!(dates, df_hdd[!, :date][1])
+	
+		df_nok = filter(row -> ~ismissing(row.failure) && 
+		                                  row.failure > 0, df_hdd)
+		df_ok  = filter(row -> ~ismissing(row.failure) &&
+		                                  row.failure == 0, df_hdd)
+	
+		# % of failed drives showing SMART stat > 0
+		nok = get_stat_match(df_nok, smart_stat)	
+		push!(nok_match, nok)
+	
+		# % of operational drives showing SMART stat > 0
+		ok  = get_stat_match(df_ok, smart_stat)
+		push!(ok_match, ok)
+
+	end
+
+	df_stats = DataFrame(DATES = dates, 
+	                     FAILED = nok_match,
+	                     OPERATIONAL  = ok_match)
+
+	return df_stats
+end	
+
+# ╔═╡ 1c551031-d877-4327-9bcd-6380682ff190
+df_stats = get_parameter_split("data", 15, smart_stat = "smart_7_raw")
 
 # ╔═╡ 27f2a510-9e43-4f56-8deb-144164cc9e1e
 md"
@@ -149,7 +284,122 @@ end
 #plot_capacity_distribution("data", 10)
 
 # ╔═╡ 72749fd6-8cdb-450a-86e1-be55ea8688b5
-#plot_capacity_distribution("data", 1)
+function plot_parameter_split(location::String, 
+	                          num_files::Int64;
+                              smart_stat::String)
+
+	df_split = get_parameter_split(location, num_files, smart_stat = smart_stat)
+
+	nok_share = mean(df_split[!, :FAILED])
+	nok_share = round(nok_share, digits = 2)
+	
+	ok_share  = mean(df_split[!, :OPERATIONAL])
+	ok_share  = round(ok_share, digits = 2)	
+
+	sdf_split = stack(df_split, 
+		              [:FAILED, :OPERATIONAL],
+	                  variable_name = :STATUS,
+	                  value_name    = :SHARE)
+
+	figure = sdf_split |>
+	@vlplot(mark = {"type" = "bar",
+	                 width = 25},
+
+			column = "DATES:o",
+
+			x = {:STATUS, 
+		         "axis" = {"title" = "", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 14},
+				 "labelAngle" = 45},
+
+	        y = {:SHARE,
+			     "axis" = {"title" = "% of drives reporting $(smart_stat) > 0", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 14}},
+
+			width   = 50, 
+			height  = 500, 
+			
+			title = {"text" = "Distribution of $(smart_stat) > 0 between operational ($(ok_share) %) and failed ($(nok_share) %) drives", 
+			         "anchor" = "middle",
+			         "fontSize" = 18},
+					 
+			color = {:STATUS, 
+			         scale = {domain = ["FAILED", "OPERATIONAL"],
+				             range   = [ :red, :green]},
+					 legend = false},
+
+			spacing = 10,
+			config  = {view = {stroke = :transparent},
+			           axis = {domainWidth = 1}},
+			)
+
+	return figure
+end
+
+# ╔═╡ e4f67c5c-dabc-4c78-a113-097d912e6a60
+md"
+##### 196 - Reallocation Event Count
+Count of remap operations. The raw value of this attribute shows the total number of attempts to transfer data from reallocated sectors to a spare area. Both successful & unsuccessful attempts are counted.
+"
+
+# ╔═╡ 54d11ae3-9272-4087-858b-1f7d18bd6fdd
+plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_196_raw")
+
+# ╔═╡ 3f45d54a-9d70-42c5-aa23-214d516023b4
+md"
+##### 07 - Seek Error Rate
+Rate of seek errors of the magnetic heads. If there is a failure in the mechanical positioning system, a servo damage or a thermal widening of the hard disk, seek errors arise. More seek errors indicates a worsening condition of a disk surface and the mechanical subsystem.
+"
+
+# ╔═╡ 42672886-0154-4014-b69d-8f470d973c04
+#plot_parameter_split("data", 15, smart_stat = "smart_7_raw")
+
+# ╔═╡ 58b5cc2a-240a-4486-9fa7-8fc73b43f65c
+md"
+##### 197 - Current Pending Sector Count
+Number of \"unstable\" sectors (waiting to be remapped). If the unstable sector is subsequently written or read successfully, this value is decreased and the sector is not remapped. Read errors on the sector will not remap the sector, it will only be remapped on a failed write attempt. This can be problematic to test because cached writes will not remap the sector, only direct I/O writes to the disk.
+"
+
+# ╔═╡ 974eb941-73c6-41c3-881d-2b9ce4b5b950
+plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_197_raw")
+
+# ╔═╡ cfe4a08c-7b96-4ce0-920e-5d397c889c80
+plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_197_raw")
+
+# ╔═╡ 68f57dcf-5c07-4249-9f52-4308f8e997a2
+md"
+##### 198 - Uncorrectable Sector Count
+The total number of uncorrectable errors when reading/writing a sector. A rise in the value of this attribute indicates defects of the disk surface and/or problems in the mechanical subsystem.
+"
+
+# ╔═╡ bfe33c3d-7766-410d-8f74-4739fe498525
+plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_198_raw")
+
+# ╔═╡ e0022d18-4cbf-462d-8936-f187e5836432
+md"
+##### 200 - Write Error Rate / Multi-Zone Error Rate
+The total number of errors when writing a sector.
+"
+
+# ╔═╡ a711fbc9-40cc-4b57-997c-33f45d50fcba
+plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_200_raw")
+
+# ╔═╡ 0aef3797-58ec-416a-83f4-3fa1c70c564f
+#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_200_raw")
+
+# ╔═╡ 4efd1e1e-a9da-45b9-bf70-7bb9b2c9aad9
+md"
+##### 199 - UltraDMA CRC Error Count
+The number of errors in data transfer via the interface cable as determined by ICRC (Interface Cyclic Redundancy Check).
+"
+
+# ╔═╡ d683edf1-dd0e-424e-a32f-66c5baaad975
+plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_199_raw")
+
+# ╔═╡ 8190950a-75dd-45cd-ae9b-28f3b29c4cdb
+plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_199_raw")
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -157,6 +407,7 @@ PLUTO_PROJECT_TOML_CONTENTS = """
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
 VegaLite = "112f6efa-9a02-5b7d-90c0-432ed331239a"
 
@@ -173,7 +424,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "bc1276e5388614d0b8335226e6dfe4b1d7da2bf2"
+project_hash = "74bf1853eefbeb15ca56df8ffbbda91f8f65314a"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra"]
@@ -738,20 +989,43 @@ version = "17.4.0+0"
 # ╠═0f13e168-a1a3-11ed-1d08-6d1b9fd20152
 # ╟─a5fb7e11-38ca-49a3-87a8-35afd5d8ed1b
 # ╟─8624f4f9-a9f6-4938-ad73-a3e279eaa93b
+# ╟─9362eaad-ff3e-437f-bd6e-5515a913641f
 # ╠═3cb20b83-935e-4766-99d1-0d25a0becdce
 # ╠═89cb4259-9724-4c12-a587-da43028c1750
-# ╟─9362eaad-ff3e-437f-bd6e-5515a913641f
+# ╠═c91e5550-37b7-4cf9-b8b5-7aeb1957e524
+# ╠═6eb86c63-6739-45f5-8de6-3a1eac22c57f
 # ╟─324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 # ╟─f5cbdb7a-b215-44ba-b01b-d4bae48ba106
 # ╟─db8e7773-9ead-48ba-829a-2ef9b7710a1d
 # ╠═d7c35096-e9d2-4881-9a55-783ecc49d612
-# ╠═6a5c74fa-e0e8-499b-8176-17877d1a71d4
-# ╠═6aca02ac-0b48-4643-b18b-6b9f26677881
+# ╟─05a82650-9f18-4b77-b54c-3fd587e56522
+# ╟─6aca02ac-0b48-4643-b18b-6b9f26677881
+# ╟─510ae8dc-2288-4927-9552-782fc98dd290
+# ╟─5a8890a3-6d0a-495a-b261-9b68933b95a2
 # ╠═0ae085ec-ec13-4f26-b6f2-4bf7d264865f
 # ╠═fbf2b366-b36e-4f2e-9ffb-2a2bedf9305a
+# ╟─00ab4336-e085-4c18-b868-09986348205d
+# ╟─6cb90013-5e91-435f-bfac-85eccb13d4f4
+# ╟─570c59ec-31aa-475a-9284-eba9418ed2e6
+# ╠═1c551031-d877-4327-9bcd-6380682ff190
 # ╟─27f2a510-9e43-4f56-8deb-144164cc9e1e
 # ╟─abf0af13-6028-4ca7-8736-0947429639d2
 # ╠═954ede07-53c7-4b64-bba4-4072c6e43863
-# ╠═72749fd6-8cdb-450a-86e1-be55ea8688b5
+# ╟─72749fd6-8cdb-450a-86e1-be55ea8688b5
+# ╟─e4f67c5c-dabc-4c78-a113-097d912e6a60
+# ╠═54d11ae3-9272-4087-858b-1f7d18bd6fdd
+# ╟─3f45d54a-9d70-42c5-aa23-214d516023b4
+# ╠═42672886-0154-4014-b69d-8f470d973c04
+# ╟─58b5cc2a-240a-4486-9fa7-8fc73b43f65c
+# ╠═974eb941-73c6-41c3-881d-2b9ce4b5b950
+# ╠═cfe4a08c-7b96-4ce0-920e-5d397c889c80
+# ╟─68f57dcf-5c07-4249-9f52-4308f8e997a2
+# ╠═bfe33c3d-7766-410d-8f74-4739fe498525
+# ╟─e0022d18-4cbf-462d-8936-f187e5836432
+# ╠═a711fbc9-40cc-4b57-997c-33f45d50fcba
+# ╠═0aef3797-58ec-416a-83f4-3fa1c70c564f
+# ╟─4efd1e1e-a9da-45b9-bf70-7bb9b2c9aad9
+# ╠═d683edf1-dd0e-424e-a32f-66c5baaad975
+# ╠═8190950a-75dd-45cd-ae9b-28f3b29c4cdb
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
