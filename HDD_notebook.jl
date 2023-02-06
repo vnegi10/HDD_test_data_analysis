@@ -42,16 +42,13 @@ function csv_to_df(file)
 end
 
 # ╔═╡ 3cb20b83-935e-4766-99d1-0d25a0becdce
-files = read_filepaths("data")
+files = read_filepaths("data/2022/")
 
 # ╔═╡ 89cb4259-9724-4c12-a587-da43028c1750
 df_hdd = csv_to_df(files[2])
 
 # ╔═╡ c91e5550-37b7-4cf9-b8b5-7aeb1957e524
-df_nok = filter(row -> row.failure == 0, df_hdd)
-
-# ╔═╡ 6eb86c63-6739-45f5-8de6-3a1eac22c57f
-df_nok_stat = select(df_nok, :smart_7_raw => :to_check)
+df_nok = filter(row -> row.failure > 0, df_hdd)
 
 # ╔═╡ 324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 function get_all_df_serial(location::String, num_files::Int64)
@@ -262,7 +259,16 @@ function get_failed_drives(location::String,
 end	
 
 # ╔═╡ 6c80ce03-dd0d-4d4a-883e-8bfc34e71009
-df_all_nok = get_failed_drives("data/data_Q4_2022", 10)
+df_all_nok = get_failed_drives("data/2022", 10)
+
+# ╔═╡ 54c1df98-0f66-4150-bc38-39ed1d9689e6
+df_all_nok[!, "smart_12_raw"]
+
+# ╔═╡ 5c6e1fa1-a3c1-4b09-80f7-99948c7bf613
+
+
+# ╔═╡ dce9ea3a-5dc8-4f71-8172-6fd78fcdb61f
+
 
 # ╔═╡ b534f5eb-90ce-44ae-86ae-061e91c56bf4
 md"
@@ -286,6 +292,12 @@ function get_model_count(df_hdd::DataFrame)
 
 	return df_hdd_model
 end
+
+# ╔═╡ 49fce46d-abec-45d9-85ba-444473175697
+
+
+# ╔═╡ d88827ce-b06d-405d-8f37-da83eab79960
+
 
 # ╔═╡ 27f2a510-9e43-4f56-8deb-144164cc9e1e
 md"
@@ -384,7 +396,7 @@ function plot_failed_capacity_dist(location::String,
 end	
 
 # ╔═╡ 6458cb46-7e17-4b92-87fd-d09125db5498
-plot_failed_capacity_dist("data/data_Q4_2022", 92)
+#plot_failed_capacity_dist("data/data_Q4_2022", 92)
 
 # ╔═╡ af68db74-0447-41cf-87a6-d8cdb8c0d82c
 md"
@@ -410,7 +422,7 @@ function plot_model_dist(location::String, file_index::Int64)
 		         "axis" = {"title" = "HDD model ", 
 				           "labelFontSize" = 12, 
 						   "titleFontSize" = 12,
-						   "labelAngle" = 45}},
+						   "labelAngle" = 90}},
 				 
 	        y = {:COUNTS, 
 			     "type" = "quantitative",
@@ -429,7 +441,7 @@ function plot_model_dist(location::String, file_index::Int64)
 end
 
 # ╔═╡ 52d3fdd8-e078-45c8-9e81-9ee4bd6531e9
-plot_model_dist("data/data_Q4_2022", 1)
+plot_model_dist("data/2022", 1)
 
 # ╔═╡ 5cc69e6a-4f9f-43fb-8cc7-f1062491de2e
 md"
@@ -471,7 +483,7 @@ function plot_failed_model_dist(location::String,
 end	
 
 # ╔═╡ 0367be00-5fc5-4973-bfd2-e042ba21714a
-plot_failed_model_dist("data/data_Q4_2022", 92)
+plot_failed_model_dist("data/2022/", 365)
 
 # ╔═╡ 505c2151-3a55-41ca-a1fa-d41ef97cde54
 function plot_failed_model_pert(location::String, 
@@ -488,15 +500,22 @@ function plot_failed_model_pert(location::String,
 	start_date, end_date = df_all_nok[!, :date][1], df_all_nok[!, :date][end]
 
 	df_nok_model = get_model_count(df_all_nok)
-	all_nok_pert = Float64[]
+	allowmissing!(df_nok_model)
+	
+	all_nok_pert = Union{Float64, Missing}[]
 
 	for (i, model) in enumerate(df_nok_model[!, :MODELS])
 
-		df_total = filter(row -> row.MODELS == model, df_hdd_model)
-		num_total = df_total[!, :COUNTS][1]
+		try
+			df_total = filter(row -> row.MODELS == model, df_hdd_model)
+			num_total = df_total[!, :COUNTS][1]
 
-		nok_pert = (df_nok_model[!, :COUNTS][i] / num_total) * 100
-		push!(all_nok_pert, nok_pert)
+			nok_pert = (df_nok_model[!, :COUNTS][i] / num_total) * 100
+			push!(all_nok_pert, nok_pert)
+		catch
+			push!(all_nok_pert, missing)
+		end
+		
 	end
 
 	insertcols!(df_nok_model, 2, :PERT => all_nok_pert, after = true)
@@ -527,7 +546,55 @@ function plot_failed_model_pert(location::String,
 end	
 
 # ╔═╡ f844f06a-0a53-481d-a642-7816224ec649
-plot_failed_model_pert("data/data_Q4_2022", 92)
+plot_failed_model_pert("data/2022", 180)
+
+# ╔═╡ 0542e747-1bd7-4df1-918c-2a6be441ae34
+md"
+##### Correlation between SMART parameters for failed drives
+"
+
+# ╔═╡ efd4108f-abc5-4b8f-b923-d63b351ed8b9
+function plot_failed_corr(location::String, 
+	                      num_files::Int64;
+                          s1::String,
+                          s2::String)
+
+	df_all_nok = get_failed_drives(location, num_files)
+	start_date, end_date = df_all_nok[!, :date][1], df_all_nok[!, :date][end]
+
+	figure = df_all_nok |>
+	
+	@vlplot(:circle, 
+	        x = {Symbol(s1),
+		         bin  = {maxbins = 10},		
+		         axis = {"title" = "$(s1) parameter", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+				 
+	        y = {Symbol(s2),
+			     bin  = {maxbins = 10},	
+			     axis = {"title" = "$(s2) parameter", 
+				           "labelFontSize" = 12, 
+						   "titleFontSize" = 12}},
+
+			size = "count()",
+						   
+	        width   = 750, 
+			height  = 500, 
+			
+			"title" = {"text" = "2D histogram scatterplot for failed drives between $(start_date) and $(end_date)", 
+			"fontSize" = 12}
+			)
+
+	return figure
+	
+end	
+
+# ╔═╡ 3f9287e3-a09c-4516-ac74-82da80ec6519
+plot_failed_corr("data/2022", 180, s1 = "smart_197_raw", s2 = "smart_198_raw")
+
+# ╔═╡ d81b74eb-5014-481c-a0bc-979f5f6fb564
+plot_failed_corr("data/2022", 180, s1 = "smart_12_raw", s2 = "smart_197_raw")
 
 # ╔═╡ 031e7ec2-41ff-477e-a27e-f4548bbda7b9
 md"
@@ -596,7 +663,7 @@ Count of remap operations. The raw value of this attribute shows the total numbe
 "
 
 # ╔═╡ 54d11ae3-9272-4087-858b-1f7d18bd6fdd
-plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_196_raw")
+#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_196_raw")
 
 # ╔═╡ 3f45d54a-9d70-42c5-aa23-214d516023b4
 md"
@@ -614,10 +681,10 @@ Number of \"unstable\" sectors (waiting to be remapped). If the unstable sector 
 "
 
 # ╔═╡ 974eb941-73c6-41c3-881d-2b9ce4b5b950
-plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_197_raw")
+plot_parameter_split("data/2022/data_Q2_2022", 15, smart_stat = "smart_197_raw")
 
 # ╔═╡ cfe4a08c-7b96-4ce0-920e-5d397c889c80
-plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_197_raw")
+#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_197_raw")
 
 # ╔═╡ 68f57dcf-5c07-4249-9f52-4308f8e997a2
 md"
@@ -626,7 +693,7 @@ The total number of uncorrectable errors when reading/writing a sector. A rise i
 "
 
 # ╔═╡ bfe33c3d-7766-410d-8f74-4739fe498525
-plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_198_raw")
+plot_parameter_split("data/2022/data_Q1_2022", 15, smart_stat = "smart_198_raw")
 
 # ╔═╡ e0022d18-4cbf-462d-8936-f187e5836432
 md"
@@ -635,7 +702,7 @@ The total number of errors when writing a sector.
 "
 
 # ╔═╡ a711fbc9-40cc-4b57-997c-33f45d50fcba
-plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_200_raw")
+#plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_200_raw")
 
 # ╔═╡ 0aef3797-58ec-416a-83f4-3fa1c70c564f
 #plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_200_raw")
@@ -647,10 +714,10 @@ The number of errors in data transfer via the interface cable as determined by I
 "
 
 # ╔═╡ d683edf1-dd0e-424e-a32f-66c5baaad975
-plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_199_raw")
+#plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_199_raw")
 
 # ╔═╡ 8190950a-75dd-45cd-ae9b-28f3b29c4cdb
-plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_199_raw")
+#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_199_raw")
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1244,7 +1311,6 @@ version = "17.4.0+0"
 # ╠═3cb20b83-935e-4766-99d1-0d25a0becdce
 # ╠═89cb4259-9724-4c12-a587-da43028c1750
 # ╠═c91e5550-37b7-4cf9-b8b5-7aeb1957e524
-# ╠═6eb86c63-6739-45f5-8de6-3a1eac22c57f
 # ╟─324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 # ╟─f5cbdb7a-b215-44ba-b01b-d4bae48ba106
 # ╟─db8e7773-9ead-48ba-829a-2ef9b7710a1d
@@ -1262,8 +1328,13 @@ version = "17.4.0+0"
 # ╟─f8e20f63-eb07-48df-9fa1-617ab49697e7
 # ╟─9fc66684-1f99-4d5f-8cce-c5c4899bfa8b
 # ╠═6c80ce03-dd0d-4d4a-883e-8bfc34e71009
+# ╠═54c1df98-0f66-4150-bc38-39ed1d9689e6
+# ╠═5c6e1fa1-a3c1-4b09-80f7-99948c7bf613
+# ╠═dce9ea3a-5dc8-4f71-8172-6fd78fcdb61f
 # ╟─b534f5eb-90ce-44ae-86ae-061e91c56bf4
 # ╟─9c227e4f-5663-4423-84a9-1862458c591f
+# ╠═49fce46d-abec-45d9-85ba-444473175697
+# ╠═d88827ce-b06d-405d-8f37-da83eab79960
 # ╟─27f2a510-9e43-4f56-8deb-144164cc9e1e
 # ╟─a7ce54f2-ec66-43ab-823b-50834369bf3f
 # ╟─abf0af13-6028-4ca7-8736-0947429639d2
@@ -1279,6 +1350,10 @@ version = "17.4.0+0"
 # ╠═0367be00-5fc5-4973-bfd2-e042ba21714a
 # ╟─505c2151-3a55-41ca-a1fa-d41ef97cde54
 # ╠═f844f06a-0a53-481d-a642-7816224ec649
+# ╟─0542e747-1bd7-4df1-918c-2a6be441ae34
+# ╟─efd4108f-abc5-4b8f-b923-d63b351ed8b9
+# ╠═3f9287e3-a09c-4516-ac74-82da80ec6519
+# ╠═d81b74eb-5014-481c-a0bc-979f5f6fb564
 # ╟─031e7ec2-41ff-477e-a27e-f4548bbda7b9
 # ╟─72749fd6-8cdb-450a-86e1-be55ea8688b5
 # ╟─e4f67c5c-dabc-4c78-a113-097d912e6a60
