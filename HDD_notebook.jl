@@ -45,10 +45,10 @@ end
 files = read_filepaths("data/2022/")
 
 # ╔═╡ 89cb4259-9724-4c12-a587-da43028c1750
-df_hdd = csv_to_df(files[2])
+@time df_hdd = csv_to_df(files[20])
 
 # ╔═╡ c91e5550-37b7-4cf9-b8b5-7aeb1957e524
-df_nok = filter(row -> row.failure > 0, df_hdd)
+@time df_nok = filter(row -> row.failure > 0, df_hdd)
 
 # ╔═╡ 324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 function get_all_df_serial(location::String, num_files::Int64)
@@ -258,17 +258,44 @@ function get_failed_drives(location::String,
 	
 end	
 
+# ╔═╡ 4dba1e91-f86e-496e-a595-2710e7c5b93f
+function filter_failures(file::String)
+
+	df_hdd = file |> csv_to_df
+	df_nok = filter(row -> ~ismissing(row.failure) && 
+		                              row.failure > 0, df_hdd)
+
+	return df_nok
+end
+
+# ╔═╡ a6c357d8-db82-4820-ac81-e650d787cf54
+function get_failed_drives_parallel(location::String, 
+	                       			num_files::Int64)
+
+	files = read_filepaths(location)
+	@assert num_files ≤ length(files) "Reduce the number of files below $(length(files))"
+	
+	files_to_use = files[1:num_files]
+	all_nok = Array{DataFrame}(undef, length(files_to_use))
+
+	ThreadsX.map!(x -> filter_failures(x), all_nok, files_to_use)
+
+	return vcat(all_nok...)
+
+end	
+
 # ╔═╡ 6c80ce03-dd0d-4d4a-883e-8bfc34e71009
-df_all_nok = get_failed_drives("data/2022", 10)
+@time df_all_nok = get_failed_drives("data/2022", 10) 
+
+# ╔═╡ da9a55c5-5424-4208-9de2-712a35cae10c
+begin
+	A = filter(x -> ~ismissing(x), df_all_nok[!, "smart_197_raw"])
+	B = filter(x -> ~ismissing(x), df_all_nok[!, "smart_198_raw"])
+	cor(A, B)
+end
 
 # ╔═╡ 54c1df98-0f66-4150-bc38-39ed1d9689e6
-df_all_nok[!, "smart_12_raw"]
-
-# ╔═╡ 5c6e1fa1-a3c1-4b09-80f7-99948c7bf613
-
-
-# ╔═╡ dce9ea3a-5dc8-4f71-8172-6fd78fcdb61f
-
+#@time df_all_nok_1 = get_failed_drives_parallel("data/2022", 180)
 
 # ╔═╡ b534f5eb-90ce-44ae-86ae-061e91c56bf4
 md"
@@ -292,12 +319,6 @@ function get_model_count(df_hdd::DataFrame)
 
 	return df_hdd_model
 end
-
-# ╔═╡ 49fce46d-abec-45d9-85ba-444473175697
-
-
-# ╔═╡ d88827ce-b06d-405d-8f37-da83eab79960
-
 
 # ╔═╡ 27f2a510-9e43-4f56-8deb-144164cc9e1e
 md"
@@ -483,7 +504,7 @@ function plot_failed_model_dist(location::String,
 end	
 
 # ╔═╡ 0367be00-5fc5-4973-bfd2-e042ba21714a
-plot_failed_model_dist("data/2022/", 365)
+#plot_failed_model_dist("data/2022/", 365)
 
 # ╔═╡ 505c2151-3a55-41ca-a1fa-d41ef97cde54
 function plot_failed_model_pert(location::String, 
@@ -546,7 +567,7 @@ function plot_failed_model_pert(location::String,
 end	
 
 # ╔═╡ f844f06a-0a53-481d-a642-7816224ec649
-plot_failed_model_pert("data/2022", 180)
+#plot_failed_model_pert("data/2022", 180)
 
 # ╔═╡ 0542e747-1bd7-4df1-918c-2a6be441ae34
 md"
@@ -590,11 +611,52 @@ function plot_failed_corr(location::String,
 	
 end	
 
+# ╔═╡ 764aec64-93fe-4253-923c-82b0c6ef7ab2
+function plot_failed_scatter(location::String, 
+	                      	 num_files::Int64;
+                             s1::String,
+                             s2::String)
+
+	df_all_nok = get_failed_drives(location, num_files)
+	start_date, end_date = df_all_nok[!, :date][1], df_all_nok[!, :date][end]
+
+	# Calculate Pearson's correlation coefficient
+	df_corr     = select(df_all_nok, [Symbol(s1), Symbol(s2)]) |> dropmissing
+	correlation = cor(df_corr[!, 1], df_corr[!, 2])
+	correlation = round(correlation, digits = 3)
+
+	figure = df_all_nok |>
+	
+	@vlplot(:point, 
+	        x = {Symbol(s1),
+		         axis = {title = "$(s1) parameter", 
+				         labelFontSize = 12, 
+						 titleFontSize = 12}},
+				 
+	        y = {Symbol(s2),
+			     axis = {title = "$(s2) parameter", 
+				         labelFontSize = 12, 
+						 titleFontSize = 12}},
+						 
+	        width   = 750, 
+			height  = 500, 
+			
+			"title" = {"text" = "2D scatterplot for failed drives between $(start_date) and $(end_date), Pearson's corr. coeff. = $(correlation)", 
+			"fontSize" = 12}
+			)
+
+	return figure
+	
+end	
+
+# ╔═╡ 27f02918-ab29-4df5-9c7a-e61997d1013b
+plot_failed_scatter("data/2022", 180, s1 = "smart_197_raw", s2 = "smart_198_raw")
+
 # ╔═╡ 3f9287e3-a09c-4516-ac74-82da80ec6519
-plot_failed_corr("data/2022", 180, s1 = "smart_197_raw", s2 = "smart_198_raw")
+#plot_failed_corr("data/2022", 180, s1 = "smart_197_raw", s2 = "smart_198_raw")
 
 # ╔═╡ d81b74eb-5014-481c-a0bc-979f5f6fb564
-plot_failed_corr("data/2022", 180, s1 = "smart_12_raw", s2 = "smart_197_raw")
+plot_failed_scatter("data/2022", 180, s1 = "smart_5_raw", s2 = "smart_197_raw")
 
 # ╔═╡ 031e7ec2-41ff-477e-a27e-f4548bbda7b9
 md"
@@ -656,14 +718,14 @@ function plot_parameter_split(location::String,
 	return figure
 end
 
-# ╔═╡ e4f67c5c-dabc-4c78-a113-097d912e6a60
+# ╔═╡ 24781723-f438-4cfd-8163-5bdd1f39b6bc
 md"
-##### 196 - Reallocation Event Count
-Count of remap operations. The raw value of this attribute shows the total number of attempts to transfer data from reallocated sectors to a spare area. Both successful & unsuccessful attempts are counted.
+##### 05 - Reallocated Sectors Count
+Count of reallocated sectors. When the hard drive finds a read/write/verification error, it marks this sector as \"reallocated\" and transfers data to a special reserved area (spare area). This process is also known as remapping and \"reallocated\" sectors are called remaps. This is why, on modern hard disks, \"bad blocks\" cannot be found while testing the surface — all bad blocks are hidden in reallocated sectors. However, the more sectors that are reallocated, the more read/write speed will decrease.
 "
 
-# ╔═╡ 54d11ae3-9272-4087-858b-1f7d18bd6fdd
-#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_196_raw")
+# ╔═╡ c54a6985-5262-456d-ae9a-e0fb13106d84
+plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_5_raw")
 
 # ╔═╡ 3f45d54a-9d70-42c5-aa23-214d516023b4
 md"
@@ -672,7 +734,16 @@ Rate of seek errors of the magnetic heads. If there is a failure in the mechanic
 "
 
 # ╔═╡ 42672886-0154-4014-b69d-8f470d973c04
-#plot_parameter_split("data", 15, smart_stat = "smart_7_raw")
+#plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_7_raw")
+
+# ╔═╡ e4f67c5c-dabc-4c78-a113-097d912e6a60
+md"
+##### 196 - Reallocation Event Count
+Count of remap operations. The raw value of this attribute shows the total number of attempts to transfer data from reallocated sectors to a spare area. Both successful & unsuccessful attempts are counted.
+"
+
+# ╔═╡ 54d11ae3-9272-4087-858b-1f7d18bd6fdd
+#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_196_raw")
 
 # ╔═╡ 58b5cc2a-240a-4486-9fa7-8fc73b43f65c
 md"
@@ -695,18 +766,6 @@ The total number of uncorrectable errors when reading/writing a sector. A rise i
 # ╔═╡ bfe33c3d-7766-410d-8f74-4739fe498525
 plot_parameter_split("data/2022/data_Q1_2022", 15, smart_stat = "smart_198_raw")
 
-# ╔═╡ e0022d18-4cbf-462d-8936-f187e5836432
-md"
-##### 200 - Write Error Rate / Multi-Zone Error Rate
-The total number of errors when writing a sector.
-"
-
-# ╔═╡ a711fbc9-40cc-4b57-997c-33f45d50fcba
-#plot_parameter_split("data/data_Q4_2022/", 15, smart_stat = "smart_200_raw")
-
-# ╔═╡ 0aef3797-58ec-416a-83f4-3fa1c70c564f
-#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_200_raw")
-
 # ╔═╡ 4efd1e1e-a9da-45b9-bf70-7bb9b2c9aad9
 md"
 ##### 199 - UltraDMA CRC Error Count
@@ -718,6 +777,18 @@ The number of errors in data transfer via the interface cable as determined by I
 
 # ╔═╡ 8190950a-75dd-45cd-ae9b-28f3b29c4cdb
 #plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_199_raw")
+
+# ╔═╡ e0022d18-4cbf-462d-8936-f187e5836432
+md"
+##### 200 - Write Error Rate / Multi-Zone Error Rate
+The total number of errors when writing a sector.
+"
+
+# ╔═╡ a711fbc9-40cc-4b57-997c-33f45d50fcba
+plot_parameter_split("data/2022/data_Q3_2022/", 15, smart_stat = "smart_200_raw")
+
+# ╔═╡ 0aef3797-58ec-416a-83f4-3fa1c70c564f
+#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_200_raw")
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -742,7 +813,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.8.5"
 manifest_format = "2.0"
-project_hash = "74bf1853eefbeb15ca56df8ffbbda91f8f65314a"
+project_hash = "7b041109739619654c81d3ff974eb0ee9c870995"
 
 [[deps.Adapt]]
 deps = ["LinearAlgebra"]
@@ -1327,14 +1398,13 @@ version = "17.4.0+0"
 # ╠═1c551031-d877-4327-9bcd-6380682ff190
 # ╟─f8e20f63-eb07-48df-9fa1-617ab49697e7
 # ╟─9fc66684-1f99-4d5f-8cce-c5c4899bfa8b
+# ╟─4dba1e91-f86e-496e-a595-2710e7c5b93f
+# ╟─a6c357d8-db82-4820-ac81-e650d787cf54
 # ╠═6c80ce03-dd0d-4d4a-883e-8bfc34e71009
+# ╠═da9a55c5-5424-4208-9de2-712a35cae10c
 # ╠═54c1df98-0f66-4150-bc38-39ed1d9689e6
-# ╠═5c6e1fa1-a3c1-4b09-80f7-99948c7bf613
-# ╠═dce9ea3a-5dc8-4f71-8172-6fd78fcdb61f
 # ╟─b534f5eb-90ce-44ae-86ae-061e91c56bf4
 # ╟─9c227e4f-5663-4423-84a9-1862458c591f
-# ╠═49fce46d-abec-45d9-85ba-444473175697
-# ╠═d88827ce-b06d-405d-8f37-da83eab79960
 # ╟─27f2a510-9e43-4f56-8deb-144164cc9e1e
 # ╟─a7ce54f2-ec66-43ab-823b-50834369bf3f
 # ╟─abf0af13-6028-4ca7-8736-0947429639d2
@@ -1352,24 +1422,28 @@ version = "17.4.0+0"
 # ╠═f844f06a-0a53-481d-a642-7816224ec649
 # ╟─0542e747-1bd7-4df1-918c-2a6be441ae34
 # ╟─efd4108f-abc5-4b8f-b923-d63b351ed8b9
+# ╟─764aec64-93fe-4253-923c-82b0c6ef7ab2
+# ╠═27f02918-ab29-4df5-9c7a-e61997d1013b
 # ╠═3f9287e3-a09c-4516-ac74-82da80ec6519
 # ╠═d81b74eb-5014-481c-a0bc-979f5f6fb564
 # ╟─031e7ec2-41ff-477e-a27e-f4548bbda7b9
 # ╟─72749fd6-8cdb-450a-86e1-be55ea8688b5
-# ╟─e4f67c5c-dabc-4c78-a113-097d912e6a60
-# ╠═54d11ae3-9272-4087-858b-1f7d18bd6fdd
+# ╟─24781723-f438-4cfd-8163-5bdd1f39b6bc
+# ╠═c54a6985-5262-456d-ae9a-e0fb13106d84
 # ╟─3f45d54a-9d70-42c5-aa23-214d516023b4
 # ╠═42672886-0154-4014-b69d-8f470d973c04
+# ╟─e4f67c5c-dabc-4c78-a113-097d912e6a60
+# ╠═54d11ae3-9272-4087-858b-1f7d18bd6fdd
 # ╟─58b5cc2a-240a-4486-9fa7-8fc73b43f65c
 # ╠═974eb941-73c6-41c3-881d-2b9ce4b5b950
 # ╠═cfe4a08c-7b96-4ce0-920e-5d397c889c80
 # ╟─68f57dcf-5c07-4249-9f52-4308f8e997a2
 # ╠═bfe33c3d-7766-410d-8f74-4739fe498525
-# ╟─e0022d18-4cbf-462d-8936-f187e5836432
-# ╠═a711fbc9-40cc-4b57-997c-33f45d50fcba
-# ╠═0aef3797-58ec-416a-83f4-3fa1c70c564f
 # ╟─4efd1e1e-a9da-45b9-bf70-7bb9b2c9aad9
 # ╠═d683edf1-dd0e-424e-a32f-66c5baaad975
 # ╠═8190950a-75dd-45cd-ae9b-28f3b29c4cdb
+# ╟─e0022d18-4cbf-462d-8936-f187e5836432
+# ╠═a711fbc9-40cc-4b57-997c-33f45d50fcba
+# ╠═0aef3797-58ec-416a-83f4-3fa1c70c564f
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
