@@ -42,13 +42,18 @@ function csv_to_df(file)
 end
 
 # ╔═╡ 3cb20b83-935e-4766-99d1-0d25a0becdce
-files = read_filepaths("data/2022/")
+files = read_filepaths("data/2022")
 
 # ╔═╡ 89cb4259-9724-4c12-a587-da43028c1750
-@time df_hdd = csv_to_df(files[20])
+@time df_hdd = csv_to_df(files[1])
 
 # ╔═╡ c91e5550-37b7-4cf9-b8b5-7aeb1957e524
-@time df_nok = filter(row -> row.failure > 0, df_hdd)
+df_nok = filter(row -> row.failure > 0, df_hdd)
+
+# ╔═╡ eddc27e9-fe8e-490e-b849-52e32dd7019d
+md"
+##### Test serial vs parallel implementation
+"
 
 # ╔═╡ 324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 function get_all_df_serial(location::String, num_files::Int64)
@@ -287,13 +292,6 @@ end
 # ╔═╡ 6c80ce03-dd0d-4d4a-883e-8bfc34e71009
 @time df_all_nok = get_failed_drives("data/2022", 10) 
 
-# ╔═╡ da9a55c5-5424-4208-9de2-712a35cae10c
-begin
-	A = filter(x -> ~ismissing(x), df_all_nok[!, "smart_197_raw"])
-	B = filter(x -> ~ismissing(x), df_all_nok[!, "smart_198_raw"])
-	cor(A, B)
-end
-
 # ╔═╡ 54c1df98-0f66-4150-bc38-39ed1d9689e6
 #@time df_all_nok_1 = get_failed_drives_parallel("data/2022", 180)
 
@@ -318,6 +316,12 @@ function get_model_count(df_hdd::DataFrame)
 	                         COUNTS = all_counts)
 
 	return df_hdd_model
+end
+
+# ╔═╡ af765635-304c-4688-a412-ff12a5554885
+begin
+	df_model_count = get_model_count(df_hdd)
+	sort(df_model_count, :COUNTS, rev = true)
 end
 
 # ╔═╡ 27f2a510-9e43-4f56-8deb-144164cc9e1e
@@ -373,7 +377,7 @@ function plot_capacity_dist(location::String, file_index::Int64)
 end
 
 # ╔═╡ 954ede07-53c7-4b64-bba4-4072c6e43863
-#plot_capacity_dist("data", 10)
+figure2 = plot_capacity_dist("data/2022/data_Q1_2022/", 10)
 
 # ╔═╡ cf704ae2-8a2b-49ea-a1ac-23a60a9c3666
 md"
@@ -417,7 +421,7 @@ function plot_failed_capacity_dist(location::String,
 end	
 
 # ╔═╡ 6458cb46-7e17-4b92-87fd-d09125db5498
-#plot_failed_capacity_dist("data/data_Q4_2022", 92)
+#figure1 = plot_failed_capacity_dist("data/2022/", 365)
 
 # ╔═╡ af68db74-0447-41cf-87a6-d8cdb8c0d82c
 md"
@@ -462,7 +466,7 @@ function plot_model_dist(location::String, file_index::Int64)
 end
 
 # ╔═╡ 52d3fdd8-e078-45c8-9e81-9ee4bd6531e9
-plot_model_dist("data/2022", 1)
+#plot_model_dist("data/2022", 1)
 
 # ╔═╡ 5cc69e6a-4f9f-43fb-8cc7-f1062491de2e
 md"
@@ -567,7 +571,7 @@ function plot_failed_model_pert(location::String,
 end	
 
 # ╔═╡ f844f06a-0a53-481d-a642-7816224ec649
-#plot_failed_model_pert("data/2022", 180)
+#figure3 = plot_failed_model_pert("data/2022", 365)
 
 # ╔═╡ 0542e747-1bd7-4df1-918c-2a6be441ae34
 md"
@@ -650,13 +654,13 @@ function plot_failed_scatter(location::String,
 end	
 
 # ╔═╡ 27f02918-ab29-4df5-9c7a-e61997d1013b
-plot_failed_scatter("data/2022", 180, s1 = "smart_197_raw", s2 = "smart_198_raw")
+figure8 = plot_failed_scatter("data/2022", 365, s1 = "smart_197_raw", s2 = "smart_198_raw")
 
 # ╔═╡ 3f9287e3-a09c-4516-ac74-82da80ec6519
 #plot_failed_corr("data/2022", 180, s1 = "smart_197_raw", s2 = "smart_198_raw")
 
 # ╔═╡ d81b74eb-5014-481c-a0bc-979f5f6fb564
-plot_failed_scatter("data/2022", 180, s1 = "smart_5_raw", s2 = "smart_197_raw")
+#figure9 = plot_failed_scatter("data/2022", 365, s1 = "smart_187_raw", s2 = "smart_197_raw")
 
 # ╔═╡ 031e7ec2-41ff-477e-a27e-f4548bbda7b9
 md"
@@ -725,7 +729,7 @@ Count of reallocated sectors. When the hard drive finds a read/write/verificatio
 "
 
 # ╔═╡ c54a6985-5262-456d-ae9a-e0fb13106d84
-plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_5_raw")
+figure4 = plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_5_raw")
 
 # ╔═╡ 3f45d54a-9d70-42c5-aa23-214d516023b4
 md"
@@ -734,7 +738,15 @@ Rate of seek errors of the magnetic heads. If there is a failure in the mechanic
 "
 
 # ╔═╡ 42672886-0154-4014-b69d-8f470d973c04
-#plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_7_raw")
+#figure5 = plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_7_raw")
+
+# ╔═╡ 660dc65d-42eb-477b-84f7-197d6b56c6ad
+md"
+##### 187 - Reported Uncorrectable Errors
+"
+
+# ╔═╡ 4e8bf324-7d1d-4550-956a-1eb1d87c28c8
+#plot_parameter_split("data/2022/data_Q1_2022/", 15, smart_stat = "smart_187_raw")
 
 # ╔═╡ e4f67c5c-dabc-4c78-a113-097d912e6a60
 md"
@@ -752,7 +764,7 @@ Number of \"unstable\" sectors (waiting to be remapped). If the unstable sector 
 "
 
 # ╔═╡ 974eb941-73c6-41c3-881d-2b9ce4b5b950
-plot_parameter_split("data/2022/data_Q2_2022", 15, smart_stat = "smart_197_raw")
+figure6 = plot_parameter_split("data/2022/data_Q4_2022", 15, smart_stat = "smart_197_raw")
 
 # ╔═╡ cfe4a08c-7b96-4ce0-920e-5d397c889c80
 #plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_197_raw")
@@ -764,7 +776,7 @@ The total number of uncorrectable errors when reading/writing a sector. A rise i
 "
 
 # ╔═╡ bfe33c3d-7766-410d-8f74-4739fe498525
-plot_parameter_split("data/2022/data_Q1_2022", 15, smart_stat = "smart_198_raw")
+#figure7 = plot_parameter_split("data/2022/data_Q2_2022", 15, smart_stat = "smart_198_raw")
 
 # ╔═╡ 4efd1e1e-a9da-45b9-bf70-7bb9b2c9aad9
 md"
@@ -786,9 +798,6 @@ The total number of errors when writing a sector.
 
 # ╔═╡ a711fbc9-40cc-4b57-997c-33f45d50fcba
 plot_parameter_split("data/2022/data_Q3_2022/", 15, smart_stat = "smart_200_raw")
-
-# ╔═╡ 0aef3797-58ec-416a-83f4-3fa1c70c564f
-#plot_parameter_split("data/data_Q4_2021/", 15, smart_stat = "smart_200_raw")
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -1382,6 +1391,7 @@ version = "17.4.0+0"
 # ╠═3cb20b83-935e-4766-99d1-0d25a0becdce
 # ╠═89cb4259-9724-4c12-a587-da43028c1750
 # ╠═c91e5550-37b7-4cf9-b8b5-7aeb1957e524
+# ╟─eddc27e9-fe8e-490e-b849-52e32dd7019d
 # ╟─324fe9f0-b3f6-4345-98e8-2bf66e5fe893
 # ╟─f5cbdb7a-b215-44ba-b01b-d4bae48ba106
 # ╟─db8e7773-9ead-48ba-829a-2ef9b7710a1d
@@ -1401,10 +1411,10 @@ version = "17.4.0+0"
 # ╟─4dba1e91-f86e-496e-a595-2710e7c5b93f
 # ╟─a6c357d8-db82-4820-ac81-e650d787cf54
 # ╠═6c80ce03-dd0d-4d4a-883e-8bfc34e71009
-# ╠═da9a55c5-5424-4208-9de2-712a35cae10c
 # ╠═54c1df98-0f66-4150-bc38-39ed1d9689e6
 # ╟─b534f5eb-90ce-44ae-86ae-061e91c56bf4
 # ╟─9c227e4f-5663-4423-84a9-1862458c591f
+# ╠═af765635-304c-4688-a412-ff12a5554885
 # ╟─27f2a510-9e43-4f56-8deb-144164cc9e1e
 # ╟─a7ce54f2-ec66-43ab-823b-50834369bf3f
 # ╟─abf0af13-6028-4ca7-8736-0947429639d2
@@ -1432,6 +1442,8 @@ version = "17.4.0+0"
 # ╠═c54a6985-5262-456d-ae9a-e0fb13106d84
 # ╟─3f45d54a-9d70-42c5-aa23-214d516023b4
 # ╠═42672886-0154-4014-b69d-8f470d973c04
+# ╟─660dc65d-42eb-477b-84f7-197d6b56c6ad
+# ╠═4e8bf324-7d1d-4550-956a-1eb1d87c28c8
 # ╟─e4f67c5c-dabc-4c78-a113-097d912e6a60
 # ╠═54d11ae3-9272-4087-858b-1f7d18bd6fdd
 # ╟─58b5cc2a-240a-4486-9fa7-8fc73b43f65c
@@ -1444,6 +1456,5 @@ version = "17.4.0+0"
 # ╠═8190950a-75dd-45cd-ae9b-28f3b29c4cdb
 # ╟─e0022d18-4cbf-462d-8936-f187e5836432
 # ╠═a711fbc9-40cc-4b57-997c-33f45d50fcba
-# ╠═0aef3797-58ec-416a-83f4-3fa1c70c564f
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
